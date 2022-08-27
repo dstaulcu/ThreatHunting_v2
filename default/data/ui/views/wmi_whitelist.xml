@@ -1,12 +1,14 @@
-<form>
+<form version="1.1">
   <label>WMI whitelist editor</label>
   <fieldset submitButton="true" autoRun="true">
     <input type="dropdown" token="mitre_technique_id" id="mitre_technique_id">
       <label>mitre_technique_id</label>
       <search>
         <query>| rest /servicesNS/-/ThreatHunting/saved/searches 
-| search title="[T*]*" 
-| rex field=search "mitre_technique_id=\"(?&lt;id&gt;[^\.]*)\"" 
+| fields title, search
+| eval search=urldecode(search)
+| regex search="(?i)mitre_technique_id=\"T\d+\""
+| rex field=search "mitre_technique_id=\"(?&lt;id&gt;T\d+)\"" 
 | stats dc(id) AS Searches by id 
 | sort id 
 | table id</query>
@@ -30,7 +32,7 @@
     <input type="text" token="wmi_consumer_destination">
       <label>wmi_consumer_destination</label>
       <default></default>
-    </input>    
+    </input>
     <input type="text" token="input_reason">
       <label>reason</label>
       <default>CHANGEME</default>
