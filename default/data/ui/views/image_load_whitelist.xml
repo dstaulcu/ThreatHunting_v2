@@ -1,12 +1,14 @@
-<form>
+<form version="1.1">
   <label>Image Load whitelist editor</label>
   <fieldset submitButton="true" autoRun="true">
     <input type="dropdown" token="mitre_technique_id" id="mitre_technique_id">
       <label>mitre_technique_id</label>
       <search>
         <query>| rest /servicesNS/-/ThreatHunting/saved/searches 
-| search title="[T*]*" 
-| rex field=search "mitre_technique_id=\"(?&lt;id&gt;[^\.]*)\"" 
+| fields title, search
+| eval search=urldecode(search)
+| regex search="(?i)mitre_technique_id=\"T\d+\""
+| rex field=search "mitre_technique_id=\"(?&lt;id&gt;T\d+)\"" 
 | stats dc(id) AS Searches by id 
 | sort id 
 | table id</query>
@@ -86,7 +88,7 @@
 | eval delete=if(mode="delete" and mitre_technique_id=input_mitre_technique_id and host_fqdn=input_host_fqdn and driver_loaded=input_driver_loaded and process_path=input_process_path and driver_is_signed=input_driver_is_signed and driver_signature=input_driver_signature and driver_signature_status=input_driver_signature_status, "yes", "no") 
 | where delete="no" 
 | fields - delete mode 
-
+| fields - input_host_fqdn input_user_name input_mitre_technique_id input_process_command_line input_process_path input_process_parent_path input_hash_sha256
 | outputlookup threathunting_image_load_whitelist.csv 
 | fields added_date contact mitre_technique_id reason host_fqdn process_path driver_loaded driver_is_signed driver_signature driver_signature_status</query>
           <earliest>0</earliest>
@@ -104,14 +106,16 @@
       <table>
         <title>Current Entries</title>
         <search>
-          <query>| inputlookup threathunting_image_load_whitelist.csv | sort -added_datetime | fields added_date contact mitre_technique_id reason host_fqdn process_path driver_loaded driver_is_signed driver_signature driver_signatureStatus</query>
+          <query>| inputlookup threathunting_image_load_whitelist.csv | sort -added_datetime | fields added_date contact mitre_technique_id reason host_fqdn process_path driver_loaded driver_is_signed driver_signature driver_signature_status</query>
           <earliest>0</earliest>
+          <latest></latest>
         </search>
-        <option name="wrap">true</option>
-        <option name="rowNumbers">false</option>
-        <option name="drilldown">cell</option>
-        <option name="dataOverlayMode">none</option>
         <option name="count">100</option>
+        <option name="dataOverlayMode">none</option>
+        <option name="drilldown">cell</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="rowNumbers">false</option>
+        <option name="wrap">true</option>
       </table>
     </panel>
   </row>

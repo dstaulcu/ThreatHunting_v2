@@ -1,0 +1,141 @@
+<form version="1.1">
+  <label>Process Create whitelist accelerator</label>
+  <!-- Query to run in background to clear temporary cvs on selecting discard option -->
+  <search>
+    <query>$tokQueryClearTempLookup$
+    </query>
+    <done>
+      <!-- Unsets clear temp table query once search completes -->
+      <unset token="tokQueryClearTempLookup"></unset>
+      <!-- Once Temporary CSV is cleaned up the same should be updated in the table view (for No Rsults found) -->
+      <set token="tokRowData">| inputlookup tempRowData.csv | table added_date contact mitre_technique_id reason host_fqdn user_name process_path process_parent_path process_command_line hash_sha256  | dedup added_date contact mitre_technique_id reason host_fqdn user_name process_path process_parent_path process_command_line hash_sha256 | outputlookup tempRowData.csv</set>
+    </done>
+  </search>
+  <fieldset submitButton="false">
+    <input type="time" token="field1">
+      <label></label>
+      <default>
+        <earliest>-7d@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="text" token="tok_eventcount">
+      <label>eventcount threshold</label>
+      <default>5</default>
+      <initialValue>5</initialValue>
+    </input>
+    <input type="text" token="tok_hostcount">
+      <label>hostcount threshold</label>
+      <default>1</default>
+      <initialValue>1</initialValue>
+    </input>
+  </fieldset>
+  <row>
+    <panel>
+      <!-- Table with Sample data. Following is run anywhere search of Splunk Errors with first 10 rows by component name -->
+      <table>
+        <title>Possible whitelist entries to select</title>
+        <search>
+          <query>`threathunting_index` mitre_category="*" mitre_technique="*" mitre_technique_id="*" event_description="Process Creat*" (mitre_technique_id!="none") AND (host_fqdn!="none") 
+| eval hash_sha256=lower(hash_sha256) 
+| `process_create_whitelist` 
+| regex process_command_line="\""
+| rename mitre_technique_id AS ID, mitre_technique AS Technique, mitre_category AS Category, hunting_trigger AS Trigger 
+| table _time ID Technique Category Trigger host_fqdn user_name process_parent_path process_path original_file_name process_command_line, process_parent_command_line parent_user_name process_parent_guid process_guid hash_sha256 process_id process_parent_id 
+| stats count as eventcount, dc(host_fqdn) as hostcount by ID, host_fqdn process_path process_parent_path process_command_line hash_sha256
+| search eventcount&gt;=$tok_eventcount$ AND hostcount&gt;=$tok_hostcount$
+| rex field=process_path ".*\\\(?&lt;process_name&gt;.*)"
+| rex field=process_parent_path ".*\\\(?&lt;parent_process_name&gt;.*)"
+| eval added_date = strftime(now(), "%Y-%m-%d") 
+| eval contact=("$env:user$")
+| eval mitre_technique_id=ID
+| eval reason = "automated rule based on observation of " . eventcount . " identical events among " . hostcount . " hosts."
+| eval user_name="*"
+| eval host_fqdn="*"
+| eval process_path=process_path
+| eval process_parent_path=process_parent_path
+| eval process_command_line=process_command_line
+| eval hash_sha256=hash_sha256
+| fields - ID, eventcount, hostcount, parent_process_name, process_name
+| sort -added_date
+| dedup host_fqdn, user_name, mitre_technique_id, process_path process_parent_path process_command_line hash_sha256
+| fields added_date contact mitre_technique_id reason host_fqdn user_name process_path process_parent_path process_command_line hash_sha256
+</query>
+          <earliest>$field1.earliest$</earliest>
+          <latest>$field1.latest$</latest>
+          <sampleRatio>1</sampleRatio>
+        </search>
+        <option name="count">5</option>
+        <option name="dataOverlayMode">none</option>
+        <option name="drilldown">cell</option>
+        <option name="percentagesRow">false</option>
+        <option name="rowNumbers">true</option>
+        <option name="totalsRow">false</option>
+        <option name="wrap">true</option>
+        <drilldown>
+          <!-- Set the query for updating the temporary CSV when a row is selected in the Table. All table columns are accessed with $row.<fieldname>$ predefined table drilldown token -->
+          <set token="tokRowData">| inputlookup tempRowData.csv | append [| makeresults | eval added_date=$row.added_date|s$, contact=$row.contact|s$, mitre_technique_id=$row.mitre_technique_id|s$, reason=$row.reason|s$, host_fqdn=$row.host_fqdn|s$, user_name=$row.user_name|s$, process_path=$row.process_path|s$, process_parent_path=$row.process_parent_path|s$, process_command_line=$row.process_command_line|s$, hash_sha256=$row.hash_sha256|s$ ] |  table added_date contact mitre_technique_id reason host_fqdn user_name process_path process_parent_path process_command_line hash_sha256 | dedup added_date contact mitre_technique_id reason host_fqdn user_name process_path process_parent_path hash_sha256 | outputlookup tempRowData.csv</set>
+        </drilldown>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <!-- Text box to provide Lookup File to save the final Output. temp.csv is default final file-->
+      <!-- Table to Show Temporary CSV -->
+      <input type="radio" token="chkSaveResult" searchWhenChanged="true">
+        <label>action to take</label>
+        <choice value="save">Save</choice>
+        <choice value="discard">Discard</choice>
+        <change>
+          <!-- On click of Save radio button, set the query for saving data from Temporary CSV to Final CSV -->
+          <!-- Clean Radio Button token after click to give button like behavior i.e. Event on every click -->
+          <condition value="save">
+            <set token="tokQuerySaveFinalLookup">| inputlookup tempRowData.csv | outputlookup append=true override_if_empty=true threathunting_process_create_whitelist.csv</set>
+            <unset token="chkSaveResult"></unset>
+            <unset token="form.chkSaveResult"></unset>
+          </condition>
+          <!-- On click of Discard radio button, set the query for clearing Temporary CSV and unset the final save query token-->
+          <!-- Clean Radio Button token after click to give button like behavior i.e. Event on every click -->
+          <condition value="discard">
+            <set token="tokQueryClearTempLookup">|  makeresults |  fields - _time | outputlookup tempRowData.csv</set>
+            <unset token="chkSaveResult"></unset>
+            <unset token="form.chkSaveResult"></unset>
+            <unset token="tokQuerySaveFinalLookup"></unset>
+          </condition>
+        </change>
+      </input>
+      <table>
+        <title>Temporary table having selected values (tempRowData.csv)</title>
+        <search>
+          <query>$tokRowData$
+          </query>
+        </search>
+        <option name="count">5</option>
+        <option name="drilldown">cell</option>
+        <option name="rowNumbers">true</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <!-- Table to show content of Final Output csv file-->
+      <table>
+        <title>Final whitelist</title>
+        <search>
+          <done>
+            <!-- After saving to Final Output File Clear out content of Temporary CSV, reset the Final CSV name to temp.csv and clear the Save Query-->
+            <!-- Since Saving results to final CSV clears the Temporary table. Clicking again on Save radio option will set the Final csv with empty values. So it is better to provide custom file name rather that temp.csv before saving. -->
+            <set token="tokQueryClearTempLookup">| makeresults |  fields - _time | outputlookup tempRowData.csv</set>
+            <set token="form.tokFileName">threathunting_process_create_whitelist.csv</set>
+            <unset token="tokQuerySaveFinalLookup"></unset>
+          </done>
+          <query>$tokQuerySaveFinalLookup$ | append [ | inputlookup threathunting_process_create_whitelist.csv ]</query>
+          <earliest>$earliest$</earliest>
+          <latest>$latest$</latest>
+        </search>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+</form>
